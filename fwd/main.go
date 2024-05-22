@@ -2,6 +2,7 @@ package fwd
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"log"
 	"net"
@@ -12,7 +13,7 @@ import (
 
 type PortFowarder struct {
 	LocalPort  string
-	RemoteAddr string
+	RemotePort string
 	SSHUser    string
 	SSHHost    string
 	SSHPort    string
@@ -21,6 +22,10 @@ type PortFowarder struct {
 	sshConfig *ssh.ClientConfig
 	listener  net.Listener
 }
+
+// func (pf *PortFowarder) GetId() string {
+// 	return fmt.Sprintf("%s:%s", pf.LocalPort, pf.RemotePort)
+// }
 
 // Function to handle the forwarding of the connection
 func (pf *PortFowarder) forward(ctx context.Context, localConn net.Conn) {
@@ -32,7 +37,7 @@ func (pf *PortFowarder) forward(ctx context.Context, localConn net.Conn) {
 	}
 
 	// Establish connection to the remote address
-	remoteConn, err := sshConn.Dial("tcp", pf.RemoteAddr)
+	remoteConn, err := sshConn.Dial("tcp", net.JoinHostPort(pf.SSHHost, pf.RemotePort))
 	if err != nil {
 		log.Fatalf("failed to dial remote address: %v", err)
 	}
@@ -64,7 +69,7 @@ func publicKeyFile(file string) (ssh.AuthMethod, error) {
 	return ssh.PublicKeys(key), nil
 }
 
-func NewForwarder(localPort, remoteAddr, sshUser, sshHost, sshPort, keyPath string) (*PortFowarder, error) {
+func NewForwarder(localPort, remotePort, sshUser, sshHost, sshPort, keyPath string) (*PortFowarder, error) {
 
 	pkFile, err := publicKeyFile(keyPath)
 
@@ -83,7 +88,7 @@ func NewForwarder(localPort, remoteAddr, sshUser, sshHost, sshPort, keyPath stri
 
 	return &PortFowarder{
 		LocalPort:  localPort,
-		RemoteAddr: remoteAddr,
+		RemotePort: remotePort,
 		SSHUser:    sshUser,
 		SSHHost:    sshHost,
 		SSHPort:    sshPort,
@@ -96,14 +101,15 @@ func (pf *PortFowarder) Start(ctx context.Context) error {
 
 	l, err := net.Listen("tcp", "localhost:"+pf.LocalPort)
 	if err != nil {
-		log.Fatalf("failed to listen on %s: %v", pf.LocalPort, err)
+		return fmt.Errorf("failed to listen on %s: %v", pf.LocalPort, err)
 	}
 
 	pf.listener = l
 
 	defer l.Close()
+	defer ctx.Done()
 
-	log.Printf("listening on %s and forwarding to %s:%s", pf.LocalPort, pf.SSHHost, pf.SSHPort)
+	// log.Printf("listening on %s and forwarding to %s:%s", pf.LocalPort, pf.SSHHost, pf.SSHPort)
 
 	// Handle incoming connections
 	go func() {
@@ -113,7 +119,7 @@ func (pf *PortFowarder) Start(ctx context.Context) error {
 				select {
 				case <-ctx.Done():
 					// Listener closed due to context cancellation
-					log.Println("listener closed")
+					// log.Println("listener closed")
 					return
 				default:
 					log.Printf("failed to accept connection: %v", err)

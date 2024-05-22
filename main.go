@@ -1,9 +1,7 @@
 package main
 
 import (
-	"context"
 	"fmt"
-	"log"
 	"path/filepath"
 	"time"
 
@@ -13,33 +11,47 @@ import (
 
 func main() {
 	// Configuration
-	// localPort := "8080"
-	remoteAddr := "127.0.0.1:8080"
+	// remoteHost := "localhost:8080"
 	sshUser := "kl"
 	sshHost := "localhost"
 	sshPort := "61100"
 	keyPath := filepath.Join(xdg.Home, ".ssh", "id_rsa")
 
-	ctxs := make([]context.CancelFunc, 100)
+	// Run controller in a goroutine
+	startCh, cancelCh, exitCh, lports, runner := fwd.GetController(sshUser, sshHost, sshPort, keyPath)
+	go runner()
+
+	// Example usage
+	for i := 0; i < 100; i++ {
+		startCh <- fwd.StartCh{
+			RemotePort: "8080",
+			LocalPort:  fmt.Sprint(8000 + i),
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
 
 	for i := 0; i < 100; i++ {
-		ctx, cancel := context.WithCancel(context.Background())
-		pf, err := fwd.NewForwarder(fmt.Sprint(8000+i), remoteAddr, sshUser, sshHost, sshPort, keyPath)
-		if err != nil {
-			log.Println(err)
-		}
+		fmt.Println(lports[fmt.Sprint(8000+i)])
 
-		ctxs[i] = cancel
-		go pf.Start(ctx)
+		startCh <- fwd.StartCh{
+			RemotePort: "8080",
+			LocalPort:  fmt.Sprint(8000 + i),
+		}
+		time.Sleep(10 * time.Millisecond)
 	}
 
 	time.Sleep(10 * time.Second)
 
-	for i, cancel := range ctxs {
-		fmt.Printf("canceling %d", i+1)
-		time.Sleep(time.Second * 2)
-		cancel()
+	for i := 0; i < 100; i++ {
+		cancelCh <- fwd.StartCh{
+			RemotePort: "8080",
+			LocalPort:  fmt.Sprint(8000 + i),
+		}
+		time.Sleep(10 * time.Millisecond)
 	}
 
-	select {}
+	exitCh <- struct{}{}
+	time.Sleep(2 * time.Second)
 }
+
+// Controller function to handle forwarding processes
